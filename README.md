@@ -2266,15 +2266,15 @@ The only difference will generally be their size.
 Choosing an instance type influences the following:
 
 - Raw amount of resources that you get
-  - CPU, memory, local storage capacity and the type of that storage
+    - CPU, memory, local storage capacity and the type of that storage
 - Resource Ratios
-  - Instance types suited to compute applications might give you more CPU and less memory
+    - Instance types suited to compute applications might give you more CPU and less memory
 for a given dollar spent
 - Storage and data network bandwidth
 - Architecture of the hardware instances run on
-  - ARM vs x86 architectures, Intel vs AMD CPUs
+    - ARM vs x86 architectures, Intel vs AMD CPUs
 - Additional features and capabilities
-  - GPU and FPGA
+    - GPU and FPGA
 
 - **General Purpose** (T, M) - Default. Diverse (occasional peaks) and steady-state
 workloads with even resource ratios.
