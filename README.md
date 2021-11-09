@@ -2144,145 +2144,161 @@ EC2 provides Infrastructure as a Service (IaaS Product)
 
 ### 1.6.1. Virtualization 101
 
-Servers are configured in three sections without virtualization.
+Before virtualization the architecture of a server looked like this:
 
-- CPU hardware
+- Phyical resources (CPU, memory, network card, devices)
 - Kernel
   - Operating system
   - Runs in **privileged mode** and can interact with the hardware directly.
-- User Mode
-  - Runs applications.
+- Applications
+  - Runs in **user mode**
   - Can make a **system call** to the Kernel to interact with the hardware.
   - If an app tries to interact with the hardware without a system call, it
   will cause a system error and can crash the server or at minimum the app.
-
-#### 1.6.1.1. Emulated Virtualization - Software Virtualization
+	@@ -2161,42 +2161,55 @@ Servers are configured in three sections without virtualization.
 
 Host OS operated on the HW and included a hypervisor (HV).
 SW ran in privileged mode and had full access to the HW.
-Guest OS wrapped in a VM and had devices mapped into their OS to emulate real
+Guest OS was wrapped in a VM and had devices mapped into them to emulate real
 HW. Drivers such as graphics cards were all SW emulated to allow the process
 to run properly.
 
 The guest OS still believed they were running on real HW and tried
-to take control of the HW. The areas were not real and only allocated
-space to them for the moment.
+to take control of the HW. Areas of physical memory and disk were not real and only
+allocated to them by the HV. Without a special arrangement, this system would at best
+crash and at worst all the guests would overwrite each other's memories and disk areas.
 
-The HV performs **binary translation**.
-System calls are intercepted and translated in SW on the way. The guest OS needs
+To avoid this, the HV performs **binary translation**.
+System calls are intercepted and translated in SW on the fly. The guest OS needs
 no modification, but slows down a lot.
 
 #### 1.6.1.2. Para-Virtualization
 
-Guest OS are modified and run in HV containers, except they do not use slow
-binary translation. The OS is modified to change the **system calls** to
-**user calls**. Instead of calling on the HW, they call on the HV using
-**hypercalls**. Areas of the OS call the HV instead of the HW.
+Guest OS are modified and run in the same VMs, except they do not use slow
+binary translation anymore. The OS is modified to change the **system calls** to
+**user calls** but instead of calling on the HW, they call on the HV using
+**hypercalls**. So areas of the OS that would traditionally make priviledged calls
+directly to the HW are modified to call the HV instead. The OS needed to be
+modified specifically for the particular HV that was in use.
+
+The OS became almost virtualization aware which massively improved performance but
+it was still a set of software processes designed to trick the OS and other HW into
+believing that nothing had changed.
 
 #### 1.6.1.3. Hardware Assisted Virtualization
 
-The physical HW itself is virtualization aware. The CPU has specific
-functions so the HV can come in and support. When guest OS tries to run
-privileged instructions, they are trapped by the CPU and do not halt
+The physical HW itself is virtualization aware, primarily the CPU. The CPU has specific
+instructions so the HV can directly control and configure this support. When guest OS
+tries to run privileged instructions, they are trapped by the CPU and do not halt
 the process. They are redirected to the HV from the HW.
 
-What matters for a VM is the input and output operations such
-as network transfer and disk IO. The problem is multiple OS try to access
-the same piece of hardware but they get caught up on sharing.
+What matters for a VM is the input and output operations such as network transfer and disk
+IO. VMs have what they think is physical hardware as in the case of a network card but
+these cards are just logical devices using a driver that actually connect back to a single
+piece of physical hardware which sits in the host but, unless there is a physical network
+card per VM, there always going to be some level of software getting in the way.
+This hugely impacts performance and consumes a lot CPU cycles on the host when performing
+highly transactional activities.
 
-#### 1.6.1.4. SR-IOV (Singe Route IO virtualization)
+#### 1.6.1.4. SR-IOV (Single Route IO virtualization)
 
-Allows a network or any card to present itself as many mini cards.
-As far as the HV is concerned, they are real dedicated cards for their
-use. No translation needs to be done by the HV. The physical card
-handles it all. In EC2 this feature is called **enhanced networking**.
+HW devices themselves become virtualization aware. Allows a network or any card to
+present itself as many mini cards. As far as the HW is concerned, they are real dedicated
+cards for each guest OS' use. No translation needs to be done by the HV. The physical card
+which supports SR-IOV handles it all. In EC2 this feature is called **enhanced networking**.
+It means faster speeds, consistent lower latency even at high loads and less CPU usage for
+the host CPU even when the guest OS is consuming high amounts of consistent I/O.
 
 ### 1.6.2. EC2 Architecture and Resilience
 
-EC2 instances are virtual machines run on EC2 hosts.
+EC2 instances are virtual machines and run on EC2 hosts.
 
-Tenancy:
+These hosts can be classified into:
 
-- **Shared** - Instances are run on shared hardware, but isolated from other customers.
-- **Dedicated** - Instances are run on hardware that's dedicates to a single customer.
-  Dedicated instances may share hardware with other instances from the same AWS account
-  that are not Dedicated instances.
-- **Dedicated host** - Instances are run on a physical server fully dedicated for your use.
-  Pay for entire host, don't pay for instances.
+- **Shared hosts**: Instances are run on shared hardware, but isolated from other customers.
+Pay for the individual instances based on how they have been running for and what resources
+they have allocated.
+- **Dedicated hosts**: Instances are run on hardware that's dedicated to a single AWS
+account. Pay for entire host, don't pay for instances.
 
-- AZ resilient service. They run within only one AZ system.
-  - You can't access them cross zone.
+EC2 is an AZ resilient service. Instances run within only one AZ. You can't access them cross
+zone.
 
-EC2 host contains
+EC2 hosts contain:
 
 - Local hardware such as CPU and memory
-- Also have temporary instance store
+- Temporary local storage called Instance Store
   - If instance moves hosts, the storage is lost.
-- Can use remote storage, Elastic Block Store (EBS).
+- Remote storage: Elastic Block Store (EBS).
   - EBS allows you to allocate volumes of persistent storage to instances
 within the same AZ.
-- 2 types of networking
-  - Storage networking
-  - Data networking
-
-EC2 Networking (ENI)
+- 2 types of networking: Storage networking and data networking
 
 When instances are provisioned within a specific subnet within a VPC
-A primary elastic network interface is provisioned in a subnet which
+a primary elastic network interface (ENI) is provisioned in a subnet which
 maps to the physical hardware on the EC2 host. Subnets are also within
 one specific AZ. Instances can have multiple network interfaces, even within
 different subnets so long as they're within the same AZ.
-
-An instance runs on a specific host. If you restart the instance
-it will stay on that host until either:
-
-- The host fails or is taken down by AWS
-- The instance is stopped and then started, different than restarted.
-
+	@@ -2256,22 +2251,22 @@ it will stay on that host until either:
 The instance will be relocated to another host in the same AZ. Instances
 cannot move to different AZs. Everything about their hardware is locked within
 one specific AZ.
-A migration is taking a **copy** of an instance and moving it to a different AZ.
 
-In general instances of the same type and generation will occupy the same host.
+There is a way a migration could be done but it would mean taking a **copy** of an instance
+and creating a brand new one in a different AZ.
+
+In general, instances of the same type and generation will occupy the same host.
 The only difference will generally be their size.
 
 #### 1.6.2.1. EC2 Strengths
 
-Long running compute needs. Many other AWS services have run time limits.
-
-Server style applications
-
-- things waiting for network response
-- burst or stead-load
-- monolithic application stack
-  - middle ware or specific run time components
-- migrating application workloads or disaster recovery
+- Traditional OS+Application compute
+- Long running compute needs. Many other AWS services have run time limits.
+- Server style applications such as those that wait for incoming connections
+- Applications that have burst or steady-state load requirements
+- Monolithic application stacks
+  - database, middleware or specific run time components
+- Migrated application workloads or Disaster Recovery
   - existing applications running on a server and a backup system to intervene
 
 ### 1.6.3. EC2 Instance Types
 
-- **General Purpose** (T, M) - default steady state workloads with even resources
-- **Compute Optimized** (C) - Media processing, scientific modeling and gaming
+Choosing an instance type influences the following:
+
+- Raw amount of resources that you get
+  - CPU, memory, local storage capacity and the type of that storage
+- Resource Ratios
+  - Instance types suited to compute applications might give you more CPU and less memory
+for a given dollar spent
+- Storage and data network bandwidth
+- Architecture of the hardware instances run on
+  - ARM vs x86 architectures, Intel vs AMD CPUs
+- Additional features and capabilities
+  - GPU and FPGA
+
+- **General Purpose** (T, M) - Default. Diverse (occasional peaks) and steady-state
+workloads with even resource ratios.
+- **Compute Optimized** (C) - Media processing, HPC, scientific modelling, gaming and ML.
 - **Memory Optimized** (R, X) - Processing large in-memory data sets
 - **Accelerated Computing** (P, G, F) - Hardware GPU, FPGAs
 - **Storage Optimized** (H, I, D) - Large amounts of super fast local storage.
-  Massive amounts of IO per second. Elastic search and analytic workloads.
+  Sequential and random IO. Data warehousing, Elasticsearch search and analytic workloads.
 
 #### 1.6.3.1. Naming Scheme
 
-R5dn.8xlarge - whole thing is the instance type. When in doubt give the
-full instance type
+Example: R5dn.8xlarge
+
+Full string represents the instance type
 
 - 1st char: Instance family.
 - 2nd char: Instance generation. Generally always select the newest generation.
-- char after period: Instance size. Memory and CPU considerations.
-  - Often easier to scale system with a larger number of smaller instance sizes.
-- 3rd char - before period: additional capabilities
-  - a: amd cpu
+- 3rd and 4th chars: Additional capabilities
+  - a: AMD cpu
   - d: NVMe storage
   - n: network optimized
-  - e: extra capacity for ram or storage
+  - e: extra capacity for RAM or storage
+- String after period: Instance size. Memory and CPU considerations.
+  - Often easier to scale system with a larger number of smaller instance sizes.
 
 ### 1.6.4. Storage Refresher
 
@@ -2292,123 +2308,173 @@ full instance type
   - Ephemeral storage or temporary storage
 - **Elastic Block Store (EBS)**
   - Network attached storage
-  - Volumes delivered over the network
+  - Volumes delivered and attached to devices over the network
   - Persistent storage lives on past the lifetime of the instance
 
 #### 1.6.4.1. Three types of storage
 
-- Block Storage: Volume presented to the OS as a collection of blocks. No
-structure beyond that. These are mountable and bootable. The OS will
-create a file system on top of this, NTFS or EXT3 and then it mounts
-it as a drive or a root volume on Linux. Spinning hard disks or SSD. This
-could also be delivered by a physical volume. Has no built in structure.
-You can mount an EBS volume or boot off an EBS volume.
+- **Block Storage**: Volume presented to the OS as a collection of uniquely addressable blocks.
+Has no built in structure. These are mountable and bootable. The OS will
+create a file system on top of this such as NTFS or EXT3 and then it mounts
+it as a drive on Windows or a root volume on Linux. Spinning hard disks or SSD. This
+could also be delivered as a logical volume. You can mount an EBS volume or boot off an EBS
+volume.
 
-- File Storage: Presented as a file share with a structure. You access the
-files by traversing the storage. You cannot boot from storage, but you
-can mount it.
+- **File Storage**: Presented as a file share (a ready made file system) with a structure.
+You access the files by traversing the structure. You can create folders and store files
+on them. You cannot boot from storage, but you can mount it.
 
-- Object Storage: It is a flat collection of objects. An object can be anything
-with or without attached metadata. To retrieve the object, you need to provide
+- **Object Storage**: It is a flat collection of objects. No structure. An object can be
+anything. It can have attached metadata. To retrieve the object, you need to provide
 the key and then the value will be returned. This is not mountable or
 bootable. It scales very well and can have simultaneous access.
 
 #### 1.6.4.2. Storage Performance
 
-- IO Block Size: Determines how to split up the data.
-- IOPS: How many reads or writes a system can accommodate per second.
-- Throughput: End rate achieved, expressed in MB/s (megabyte per second).
+- **IO (Block) Size**: It is the size of the blocks of data that you are writing to or reading
+from disk per IO operation. Determines how to split up the data. If your storage block size
+is 16 kb and you write 64 kb of data, it will use 4 blocks.
+- **IOPS**: How many reads or writes a system can accommodate per second.
+- **Throughput**: Rate of data a storage system can store on a particular device,
+expressed in MB/s (megabyte per second).
 
 `Block Size * IOPS = Throughput`
 
-This isn't the only part of the chain, but it is a simplification.
-A system might have a throughput cap. The IOPS might decrease as the block
+These aren't the only part of the storage chain. It is a simplification.
+A system might have a throughput capacity. The IOPS might decrease as the block
 size increases.
 
 ### 1.6.5. Elastic Block Store (EBS)
 
-- Allocate block storage **volumes** to instances.
+- Provides block storage
+  - It takes raw physical disks and it presents an allocation of these physical disks
+known as volumes
+  - Instances see block devices and create a file system on these
 - Volumes are isolated to one AZ.
   - The data is highly available and resilient for that AZ.
   - All of the data is replicated within that AZ. The entire AZ must have
   a major fault to go down.
-- Two physical storage types available (SSD/HDD)
-- Varying level of performance (IOPS, T-put)
-- Billed as GB/month.
-  - If you provision a 1TB for an entire month, you're billed as such.
-  - If you have half of the data, you are billed for half of the month.
-- Four types of volumes, each with a dominant performance attribute.
-  - General purpose SSD (gp2)
-  - Provisioned IOPS SSD (io1)
+- Generally, attached to one EC2 instance (or other service) over a storage network
+  - Can be detached from one instance and reattached to another
+  - Only io1 volume types have a multi-attach feature that allows them to be attached
+to multiple EC2 instances at the same type.
+- A backup of a volume can be created into S3 in the form of a snapshot
+  - Snapshots can be used to migrate volumes between AZs
+- Different physical storage types, different sizes and different performance profiles
+- Billed using GB-month.
+  - The price for 1GB for 1 month would be the same as 2GB for half a month and the same
+as half a GB for 2 months.
+  - There are some extra charges for certain types of volumes with specific enhanced
+performance characteristics.
+- There is a maximum per instance performance that can be achieved between the EBS service
+and a single EC2 instance.
+  - Influenced by the type of volume, the type of the instance and the size of the instance.
+  - These are more than one volume can provide on its own so multiple volumes would
+be needed to saturate these maximums.
+- Four types of volumes, each with a dominant performance attribute:
+  - General purpose SSD (gp2, gp3)
+  - Provisioned IOPS SSD (io1, io2, io2 Block Express) 
     - maximum IOPS such as databases
-  - T-put optimized HDD (st1)
-    - maximum t-put for logs or media storage
+  - Throughput optimized HDD (st1)
+    - maximum throughput for logs or media storage
   - Cold HDD (sc1)
 
-#### 1.6.5.1. General Purpose SSD (gp2)
+#### 1.6.5.1. General Purpose SSD (gp2, gp3)
 
-Uses a performance bucket architecture based on the IOPS it can deliver.
-The GP2 starts with 5,400,000 IOPS allocated. It is all available instantly.
+Two types:
+- gp2
+- gp3
 
-You can consume the capacity quickly or slowly over the life of the volume.
-The capacity is filled back based upon the volume size.
-Min of 100 IOPS added back to the bucket per second.
+gp2 and gp3 volumes can be as small as 1GB or as large as 16TB
 
-Above that, there are 3 IOPS/GiB of volume size. The max is 16,000 IOPS.
-This is the **baseline performance**
+gp2 volumes are created with IO credit allocation. An IO credit allows you to use an
+IO operation.
 
-Default for boot volumes and should be the default for data volumes.
-Can only be attached to one EC2 instance at a time.
+gp2 volumes can be thought of as IO Buckets with a capacity of 5.4 million IO credits that
+fill at the **Baseline Performance** rate of the volume. All volumes start with their
+maximum capacity.
 
-#### 1.6.5.2. Provisioned IOPS SSD (io1)
+An IO Bucket fills with a minimun of 100 IO credits per second regardless of volume size.
+Beyond this, it fills with 3 IO credits per second per GB of volume size. These rates 
+constitute the **Baseline Performance**, which can go up to a maximum of 16000 IO credits
+per second.
 
-You pay for capacity and the IOPs set on the volume.
-This is good if your volume size is small but need a lot of IOPS.
+Can burst up to 3000 IOPS for volumes smaller than 1 TB. Great for boots and initial
+workloads.
 
-50:1 IOPS to GiB Ratio
-64,000 is the max IOPS per volume assuming 16 KiB I/O.
+If you are consuming more IO credits than the rate at which the bucket is refilling then
+you are depleting the bucket.
 
-Good for latency sensitive workloads such as mongoDB.
-Multi-attach allows them to attach to multiple EC2 instances at once.
+gp3 volumes are not based on a credit bucket architecture as gp2.
 
-#### 1.6.5.3. HDD Volume Types
+Every gp3 volume regardless of size starts with a standard 3000 IOPS and a throughput
+of 125 MB/s.
 
-- great value
-- great for high throughput vs IOPs
-- 500 GiB - 16 TiB
-- Neither can be used for EC2 boot volumes.
-- Good for streaming data on a hard disk.
-  - Media conversion with large amounts of storage.
-- Frequently accessed high throughput intensive workload
-  - log processing
-  - data warehouses
-- The access patterns should be sequential
-  - Massive inefficiency for small reads and writes
+The base price for gp3 is approximately 20% cheaper than gp2 and you can pay extra cost
+for up to 16000 IOPS or 1000 MB/s. This throughput is 4 times faster than gp2 whose maximum
+is 250 MB/s.
 
-Two types
+With gp2 and gp3 volumes you can achieve a maximum of 260000 IOPS per instance and a
+throughput of 70000 MB/s per instance.
 
+#### 1.6.5.2. Provisioned IOPS SSD (io1, io2, io2 Block Express)
+
+Three types:
+- io1
+- io2
+- io2 Block Express
+
+IOPS can be adjusted independently of the size of the volume and are designed for super
+high performance situations.
+
+With io1 and io2 you can achieve a maximum of 64000 IOPS per volume and a maximum of
+1000 MB/s of throughput per volume. With io2 Block Express you can achieve 256000 IOPS per
+volume and 4000 MB/s of throughput per volume.
+
+io1 and io2 volumes can be as small as 4 GB or as large as 16TB. io2 Block Express volumes
+can be as small as 4 GB or as large as 64 TB.
+
+For these types of volumes you pay for both the size and the provisioned IOPS that you need.
+
+There is a maximum at the size to performance ratio. For io1 it is 50 IOPS per GB of volume
+size which is bigger than the 3 IOPS per GB for gp2. For io2 this increases to 500 IOPS
+per GB of volume size. For io2 Block Express it is 1000 IOPS per GB of volume size.
+
+With io1 and io2 Block Express volumes you can achieve a maximum of 260000 IOPS per instance
+and a throughput of 7500 MB/s per instance. With io2 volumes these decrease to 160000 IOPS
+per instance and 4750 MB/s per instance. 
+
+Used for high performance, latency sensitive workloads, IO intensive NoSQL and relational
+databases. A common use case is when you have smaller volumes but need super high
+performance.
+
+io1 volumes types are the only ones that can be attached to multiple EC2 instances at the same time.
+
+#### 1.6.5.3. HDD Volume Types (st1, sc1)
+
+Two types:
 - st1
-  - Starts at 1 TiB of credit per TiB of volume size.
-  - 40 MB/s baseline per TiB
-  - Burst of 250 MB/s per TiB
-  - Max t-put of 500 MB/s
+  - Throughput optimized HDD
+  - Less expensive than SDD volumes
+  - Because it is HDD-based it is not great at random access. It is designed for data
+that needs to be written or read in a sequential way.
+  - 125 GB to 16 TB in size
+  - Maximum of 500 IOPS and, since IO on HDD-based volumes is measured as 1 MB blocks, it
+means a maximum throughput of 500 MB/s.
+  - Has a credit bucket architecture as gp2 volumes but with MB/s instead of IOPS.
+  - Baseline performance of 40 MB/s for every TB of volume size and a burst to a maximum
+of 250 MB/s for every TB of volume size.
+  - Designed for frequently accessed high throughput intensive sequential workloads such as
+big data, data warehousing and log processing.
 - sc1
-  - Designed for less frequently accessed data, it fills slower.
-  - 12 MB/s baseline per TiB
-  - Burst of 80 MB/s per TiB
-  - Max t-put of 250 MB/s
-
-#### 1.6.5.4. EBS Exam Power Up
-
-- Volumes are created in an AZ, isolated in that AZ.
-- If an AZ fails, the volume is impacted.
-- Highly available and resilient in that AZ. The only reason for failure is
-if the whole AZ fails.
-- Generally one volume to one instance, except **io1** with multi-attach
-- Has a GB/m fee regardless of instance state.
-- EBS maxes at 80k IOPS per instance and 64k vol (io1)
-- Max 2375 MB/s per instance, 1000 MiB/s (vol) (io1)
-
+  - Cold HDD 
+  - Even cheaper than st1
+  - 125 GB to 16 TB in size
+  - Maximum of 250 IOPS and a maximum throughput of 250 MB/s
+  - Has a credit bucket architecture as gp2 volumes but with MB/s instead of IOPS.
+  - Baseline performance of 12 MB/s for every TB of volume size and a burst to a maximum
+of 80 MB/s for every TB of volume size.
+  - Designed for less frequently accessed workloads such as archives
 ### 1.6.6. EC2 Instance Store
 
 - Local **block storage** attached to an instance.
